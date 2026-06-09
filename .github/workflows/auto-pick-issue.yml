@@ -1,0 +1,16 @@
+name: auto-pick-issue
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: GitHub issue number to process
+        required: true
+        type: string
+
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Accept dispatch
+        run: echo "Received issue=${{ inputs.issue }}"
