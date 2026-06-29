@@ -1,0 +1,72 @@
+# outcomerails-harness.yml — Portable execution harness for OutcomeRails agent dispatch.
+#
+# Contrast: auto-pick-issue.yml requires a platform-specific process manager on
+# the founder's Mac. This workflow targets a generic self-hosted runner labeled
+# [self-hosted, outcomerails] and runs the coding agent directly in the GHA job.
+# No platform-specific tooling, no plist, no founder-specific OS paths.
+#
+# Runner setup: register a runner with labels "self-hosted,outcomerails".
+# The runner must have `claude` on PATH and git credentials configured.
+# Cross-user auth (multi-tenant) is tracked separately in issue #1475.
+#
+# Engine source: the full-workflow engine lives in the private
+# gonzalomelov/factory-control repo (migrated out of this product repo). The
+# harness clones factory-control on the runner. The default GITHUB_TOKEN cannot
+# read that private sibling repo, so provide cross-repo auth via the optional
+# FACTORY_CONTROL_TOKEN secret (a PAT/fine-grained token with read access to
+# factory-control). If the secret is absent, run-harness.sh falls back to the
+# runner's ambient git credentials (the documented prerequisite above).
+#
+# Triggered by: apps/web/lib/outcomerails/dispatch-cycle.ts via workflow_dispatch.
+# Payload: inputs.issue (required string — GitHub issue number).
+
+name: outcomerails-harness
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "GitHub issue number to process"
+        required: true
+        type: string
+
+concurrency:
+  group: outcomerails-harness-${{ github.event.inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  run-harness:
+    runs-on: [self-hosted, outcomerails]
+    permissions:
+      contents: write       # git push via full-workflow.sh
+      issues: write         # status updates
+      pull-requests: write  # PR creation
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Print harness banner
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue }}
+        run: |
+          echo "## OutcomeRails Harness" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Issue | #${ISSUE_NUMBER} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Ref | ${{ github.ref }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Runner | \`$RUNNER_NAME\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Run | ${{ github.run_id }} |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run harness
+        env:
+          # Pass via env so GitHub does not template-expand the value into the
+          # shell command string before the numeric guard in run-harness.sh runs.
+          ISSUE_NUMBER: ${{ inputs.issue }}
+          # Cross-repo read token for cloning the private factory-control engine.
+          # Optional — empty when the secret is unset, in which case run-harness.sh
+          # falls back to the runner's ambient git credentials.
+          FACTORY_CONTROL_TOKEN: ${{ secrets.FACTORY_CONTROL_TOKEN }}
+        run: ./scripts/outcomerails/run-harness.sh "$ISSUE_NUMBER"
